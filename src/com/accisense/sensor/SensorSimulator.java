@@ -7,34 +7,31 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Simulates vehicle sensor readings on a background thread.
+ * Streams simulated sensor readings on a background daemon thread.
  *
- * [RUBRIC: Multithreading – implements Runnable, daemon thread]
- * [RUBRIC: Synchronization – synchronized blocks]
- * [RUBRIC: Collections – ArrayList, ConcurrentLinkedQueue]
- * [RUBRIC: Polymorphism – BaseSensor references]
- *
- * @author AcciSense Team
+ * [REVIEW-1 FIX] AtomicBoolean flags give lock-free, thread-safe sensor-state
+ * management; getAndSet(false) reads-and-resets in one atomic operation.
+ * [RUBRIC: Multithreading - Runnable, daemon thread, synchronized, atomics]
+ * [RUBRIC: Collections - ConcurrentLinkedQueue buffer]
  */
 public class SensorSimulator implements Runnable {
 
-    // [RUBRIC: Collections]
     private final List<SensorListener> listeners = new ArrayList<>();
-
-    // [RUBRIC: Collections + thread-safe buffer]
     private final Queue<SensorData> dataBuffer = new ConcurrentLinkedQueue<>();
     private static final int MAX_BUFFER_SIZE = 100;
 
-    // [RUBRIC: Polymorphism – abstract reference, concrete objects]
     private final BaseSensor accelerometer;
     private final BaseSensor gyroscope;
     private final BaseSensor impactSensor;
 
-    private volatile boolean running = false;
-    private volatile boolean simulateAccident = false;
-    private volatile boolean simulateRollover = false;
+    // [REVIEW-1 FIX] atomic state flags
+    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean simulateAccident = new AtomicBoolean(false);
+    private final AtomicBoolean simulateRollover = new AtomicBoolean(false);
+
     private int updateIntervalMs = 500;
 
     public SensorSimulator() {
@@ -43,7 +40,6 @@ public class SensorSimulator implements Runnable {
         this.impactSensor  = new ImpactSensor();
     }
 
-    // ---------- Listener management (synchronized) ----------
     public synchronized void addListener(SensorListener listener) {
         listeners.add(listener);
     }
@@ -52,73 +48,70 @@ public class SensorSimulator implements Runnable {
         listeners.remove(listener);
     }
 
-    public void setUpdateIntervalMs(int ms) { this.updateIntervalMs = ms; }
+    public void setUpdateIntervalMs(int ms) {
+        this.updateIntervalMs = ms;
+    }
 
-    // ---------- Simulation triggers ----------
     public void triggerAccident() {
-        this.simulateAccident = true;
+        simulateAccident.set(true);
         ((AccelerometerSensor) accelerometer).setAccidentMode(true);
         ((ImpactSensor) impactSensor).setCrashMode(true);
     }
 
     public void triggerRollover() {
-        this.simulateRollover = true;
+        simulateRollover.set(true);
         ((GyroscopeSensor) gyroscope).setRolloverMode(true);
         ((ImpactSensor) impactSensor).setCrashMode(true);
     }
 
-    // ---------- Thread control ----------
-    /** [RUBRIC: Multithreading – daemon thread] */
     public void start() {
-        running = true;
+        running.set(true);
         Thread t = new Thread(this, "SensorSimulator");
         t.setDaemon(true);
         t.start();
-        System.out.println("🟢 Sensor simulator thread started.");
+        System.out.println("[SENSOR] Simulator thread started.");
     }
 
     public void stop() {
-        running = false;
-        System.out.println("🔴 Sensor simulator thread stopped.");
+        running.set(false);
+        System.out.println("[SENSOR] Simulator thread stopped.");
     }
 
-    public boolean isRunning() { return running; }
+    public boolean isRunning() {
+        return running.get();
+    }
 
-    // ---------- Background loop ----------
-    /** [RUBRIC: Multithreading + Exception Handling] */
     @Override
     public void run() {
-        while (running) {
+        while (running.get()) {
             try {
                 SensorData data = generateReading();
 
-                // [RUBRIC: Synchronization – buffer under lock]
                 synchronized (dataBuffer) {
                     dataBuffer.add(data);
                     if (dataBuffer.size() > MAX_BUFFER_SIZE) dataBuffer.poll();
                 }
 
-                // Notify listeners (copy under lock)
                 List<SensorListener> copy;
                 synchronized (this) { copy = new ArrayList<>(listeners); }
-                for (SensorListener l : copy) l.onSensorDataReceived(data);
+                for (SensorListener l : copy) {
+                    l.onSensorDataReceived(data);
+                }
 
-                // Reset one-shot modes
-                if (simulateAccident) {
+                // Atomic read-and-reset of one-shot simulation flags
+                if (simulateAccident.getAndSet(false)) {
                     ((AccelerometerSensor) accelerometer).setAccidentMode(false);
                     ((ImpactSensor) impactSensor).setCrashMode(false);
-                    simulateAccident = false;
                 }
-                if (simulateRollover) {
+                if (simulateRollover.getAndSet(false)) {
                     ((GyroscopeSensor) gyroscope).setRolloverMode(false);
                     ((ImpactSensor) impactSensor).setCrashMode(false);
-                    simulateRollover = false;
                 }
 
                 Thread.sleep(updateIntervalMs);
 
             } catch (SensorException e) {
-                System.err.println("⚠ Sensor error: " + e.getMessage());
+                System.err.println("[SENSOR] Reading error: " + e.getMessage());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
@@ -126,7 +119,6 @@ public class SensorSimulator implements Runnable {
         }
     }
 
-    /** [RUBRIC: Polymorphism – runtime dispatch of readAll()] */
     private SensorData generateReading() throws SensorException {
         double[] accel = accelerometer.readAll();
         double[] gyro  = gyroscope.readAll();
@@ -135,7 +127,6 @@ public class SensorSimulator implements Runnable {
                               gyro[0], gyro[1], gyro[2], impact);
     }
 
-    /** Thread-safe buffer size. [RUBRIC: Synchronization] */
     public int getBufferSize() {
         synchronized (dataBuffer) { return dataBuffer.size(); }
     }

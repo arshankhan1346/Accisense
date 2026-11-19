@@ -12,35 +12,27 @@ import java.util.Map;
 
 /**
  * Analyses sensor data and confirms accidents using 2-of-3 threshold logic.
- *
- * [RUBRIC: Interface – implements SensorListener]
- * [RUBRIC: Collections – ArrayList, HashMap]
- * [RUBRIC: Generics – List<AccidentListener>, Map<String, Double>]
+ * [FIX 3] Explicitly tags simulated data so it cannot be confused with real emergency services.
  *
  * @author AcciSense Team
  */
 public class AccidentDetector implements SensorListener {
 
-    // [RUBRIC: Collections – thresholds stored in HashMap]
     private final Map<String, Double> thresholds = new HashMap<>();
-
-    // [RUBRIC: Collections + Generics]
     private final List<AccidentListener> listeners = new ArrayList<>();
-
     private static final long COOLDOWN_MS = 5000;
     private long lastDetectionTime = 0;
 
     public AccidentDetector() {
-        thresholds.put("IMPACT", 40.0);   // kN
-        thresholds.put("ACCEL", 20.0);    // m/s²
-        thresholds.put("GYRO", 120.0);    // °/s
+        thresholds.put("IMPACT", 40.0);
+        thresholds.put("ACCEL", 20.0);
+        thresholds.put("GYRO", 120.0);
     }
 
     public synchronized void addAccidentListener(AccidentListener l) {
         listeners.add(l);
     }
 
-    /** [RUBRIC: Interface method] */
     @Override
     public void onSensorDataReceived(SensorData data) {
         long now = System.currentTimeMillis();
@@ -58,8 +50,12 @@ public class AccidentDetector implements SensorListener {
 
         if (triggers >= 2) {
             Severity severity = determineSeverity(impact, accel, gyro);
+            
+            // [FIX 3] Explicitly tag simulated data
+            String mockLocation = "[SIMULATED GPS - NO HARDWARE ATTACHED]";
+            
             AccidentRecord record = new AccidentRecord(
-                    severity, impact, accel, gyro, "Simulated GPS Location");
+                    severity, impact, accel, gyro, mockLocation);
             lastDetectionTime = now;
 
             List<AccidentListener> copy;
@@ -68,10 +64,6 @@ public class AccidentDetector implements SensorListener {
         }
     }
 
-    /**
-     * Severity score = impact×0.5 + accel×1.5 + gyro×0.3
-     * >200 CRITICAL | >120 HIGH | >70 MEDIUM | else LOW
-     */
     private Severity determineSeverity(double impact, double accel, double gyro) {
         double score = impact * 0.5 + accel * 1.5 + gyro * 0.3;
         if (score > 200) return Severity.CRITICAL;

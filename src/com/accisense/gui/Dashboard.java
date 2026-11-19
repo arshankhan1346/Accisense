@@ -102,7 +102,7 @@ public class Dashboard extends JFrame implements SensorListener, AlertListener {
         center.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
 
         // Flashing alert banner (no emoji – avoids missing glyph boxes)
-        banner = new JLabel("ACCIDENT DETECTED  —  ALERT SENT TO EMERGENCY CONTACTS",
+        banner = new JLabel("  SIMULATED ALERT SENT (DEMO ONLY - NO REAL SMS) — ",
                 SwingConstants.CENTER);
         banner.setFont(new Font("Segoe UI", Font.BOLD, 17));
         banner.setForeground(Color.WHITE);

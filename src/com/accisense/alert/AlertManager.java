@@ -6,25 +6,19 @@ import com.accisense.model.AccidentRecord;
 import javax.sound.sampled.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-/**
- * Handles sound alert, SMS simulation, and listener notification.
- *
- * [RUBRIC: Interface – implements AccidentListener]
- * [RUBRIC: Collections – ArrayList<AlertListener>]
- * [RUBRIC: Exception Handling – try-catch around audio API]
- *
- * @author AcciSense Team
- */
 public class AlertManager implements AccidentListener {
 
     private final List<AlertListener> listeners = new ArrayList<>();
+    // [FIX 1] Dedicated background executor for blocking alert operations
+    private final ExecutorService alertExecutor = Executors.newSingleThreadExecutor();
 
     public synchronized void addAlertListener(AlertListener l) {
         listeners.add(l);
     }
 
-    /** [RUBRIC: Interface method] */
     @Override
     public void onAccidentDetected(AccidentRecord record) {
         record.setAlertSent(true);
@@ -34,15 +28,17 @@ public class AlertManager implements AccidentListener {
         System.out.println("╚══════════════════════════════════════════════════╝");
         System.out.println(record);
 
-        playBeep();
-        simulateSMS(record);
+        // [FIX 1] Offload blocking operations so sensor thread is never delayed
+        alertExecutor.submit(() -> {
+            playBeep();
+            simulateSMS(record);
 
-        List<AlertListener> copy;
-        synchronized (this) { copy = new ArrayList<>(listeners); }
-        for (AlertListener l : copy) l.onAlertTriggered(record);
+            List<AlertListener> copy;
+            synchronized (this) { copy = new ArrayList<>(listeners); }
+            for (AlertListener l : copy) l.onAlertTriggered(record);
+        });
     }
 
-    /** Generates and plays an 880 Hz beep. [RUBRIC: Exception Handling] */
     private void playBeep() {
         try {
             float sampleRate = 8000f;
@@ -63,12 +59,16 @@ public class AlertManager implements AccidentListener {
         }
     }
 
-    /** Simulates SMS to emergency contacts. */
+    // [FIX 4] Explicitly label as simulation
     private void simulateSMS(AccidentRecord record) {
-        System.out.println("📱 [SMS Simulation] Sending to emergency contacts...");
-        System.out.printf("   \"ACCIDENT ALERT! Severity: %s | Impact: %.1f kN | Time: %s | Location: %s\"%n",
+        System.out.println("📱 [SIMULATION ONLY] Mock SMS Gateway triggered...");
+        System.out.printf("   \"[MOCK SMS] ACCIDENT ALERT! Severity: %s | Impact: %.1f kN | Time: %s | Loc: %s\"%n",
                 record.getSeverity(), record.getImpactForce(),
                 record.getFormattedTime(), record.getLocation());
-        System.out.println("   ✅ SMS sent successfully (simulated).");
+        System.out.println("   ✅ Mock SMS dispatched successfully.");
+    }
+    
+    public void shutdown() {
+        alertExecutor.shutdown();
     }
 }
